@@ -354,8 +354,9 @@ impl Default for ModelCatalog {
 /// Read an OpenAI API key from the Codex CLI credential file.
 ///
 /// Checks `$CODEX_HOME/auth.json` or `~/.codex/auth.json`.
-/// Returns `Some(api_key)` if the file exists and contains a valid, non-expired token.
-/// Only checks presence — the actual key value is used transiently, never stored.
+/// Returns `Some(access_token)` if the file exists and contains a valid token.
+/// Supports both the nested `tokens.access_token` format (Codex CLI v0.105+)
+/// and the legacy flat `api_key`/`token` formats.
 pub fn read_codex_credential() -> Option<String> {
     let codex_home = std::env::var("CODEX_HOME")
         .map(std::path::PathBuf::from)
@@ -379,7 +380,7 @@ pub fn read_codex_credential() -> Option<String> {
     let content = std::fs::read_to_string(&auth_path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
 
-    // Check expiry if present
+    // Check expiry if present (legacy format)
     if let Some(expires_at) = parsed.get("expires_at").and_then(|v| v.as_i64()) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -390,9 +391,20 @@ pub fn read_codex_credential() -> Option<String> {
         }
     }
 
+    // Try nested tokens.access_token first (Codex CLI v0.105+ format)
+    if let Some(tokens) = parsed.get("tokens") {
+        if let Some(access_token) = tokens.get("access_token").and_then(|v| v.as_str()) {
+            if !access_token.is_empty() {
+                return Some(access_token.to_string());
+            }
+        }
+    }
+
+    // Fallback to legacy flat format
     parsed
         .get("api_key")
         .or_else(|| parsed.get("token"))
+        .or_else(|| parsed.get("OPENAI_API_KEY"))
         .and_then(|v| v.as_str())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
@@ -739,9 +751,9 @@ fn builtin_providers() -> Vec<ProviderInfo> {
         ProviderInfo {
             id: "codex".into(),
             display_name: "OpenAI Codex".into(),
-            api_key_env: "OPENAI_API_KEY".into(),
-            base_url: OPENAI_BASE_URL.into(),
-            key_required: true,
+            api_key_env: "CODEX_ACCESS_TOKEN".into(),
+            base_url: "https://chatgpt.com/backend-api".into(),
+            key_required: false,
             auth_status: AuthStatus::Missing,
             model_count: 0,
         },
@@ -818,7 +830,8 @@ fn builtin_aliases() -> HashMap<String, String> {
         ("minimax-m2.1", "MiniMax-M2.1"),
         ("codegeex", "codegeex-4"),
         // Codex aliases
-        ("codex", "codex/gpt-4.1"),
+        ("codex", "codex/gpt-5.3-codex"),
+        ("codex-5.3", "codex/gpt-5.3-codex"),
         ("codex-4.1", "codex/gpt-4.1"),
         ("codex-o4", "codex/o4-mini"),
         // Venice aliases
@@ -3340,7 +3353,7 @@ fn builtin_models() -> Vec<ModelCatalogEntry> {
             aliases: vec![],
         },
         // ══════════════════════════════════════════════════════════════
-        // OpenAI Codex (2) — reuses OpenAI driver
+        // OpenAI Codex — uses ChatGPT Responses API
         // ══════════════════════════════════════════════════════════════
         ModelCatalogEntry {
             id: "codex/gpt-4.1".into(),
@@ -3369,6 +3382,104 @@ fn builtin_models() -> Vec<ModelCatalogEntry> {
             supports_vision: true,
             supports_streaming: true,
             aliases: vec!["codex-o4".into()],
+        },
+        ModelCatalogEntry {
+            id: "codex/gpt-5.3-codex".into(),
+            display_name: "GPT-5.3 Codex".into(),
+            provider: "codex".into(),
+            tier: ModelTier::Frontier,
+            context_window: 1_047_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec!["codex-5.3".into()],
+        },
+        ModelCatalogEntry {
+            id: "codex/gpt-5.2-codex".into(),
+            display_name: "GPT-5.2 Codex".into(),
+            provider: "codex".into(),
+            tier: ModelTier::Frontier,
+            context_window: 1_047_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec!["codex-5.2".into()],
+        },
+        ModelCatalogEntry {
+            id: "codex/gpt-5.1-codex".into(),
+            display_name: "GPT-5.1 Codex".into(),
+            provider: "codex".into(),
+            tier: ModelTier::Frontier,
+            context_window: 1_047_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec!["codex-5.1".into()],
+        },
+        ModelCatalogEntry {
+            id: "codex/gpt-5-codex".into(),
+            display_name: "GPT-5 Codex".into(),
+            provider: "codex".into(),
+            tier: ModelTier::Frontier,
+            context_window: 1_047_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec!["codex-5".into()],
+        },
+        ModelCatalogEntry {
+            id: "codex/gpt-5.4".into(),
+            display_name: "GPT-5.4 (Codex)".into(),
+            provider: "codex".into(),
+            tier: ModelTier::Frontier,
+            context_window: 1_047_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec!["codex-5.4".into()],
+        },
+        ModelCatalogEntry {
+            id: "codex/gpt-5.1-codex-mini".into(),
+            display_name: "GPT-5.1 Codex Mini".into(),
+            provider: "codex".into(),
+            tier: ModelTier::Smart,
+            context_window: 1_047_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec!["codex-5.1-mini".into()],
+        },
+        ModelCatalogEntry {
+            id: "codex/gpt-5-codex-mini".into(),
+            display_name: "GPT-5 Codex Mini".into(),
+            provider: "codex".into(),
+            tier: ModelTier::Smart,
+            context_window: 1_047_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec!["codex-5-mini".into()],
         },
         // ══════════════════════════════════════════════════════════════
         // Claude Code CLI (3) — subprocess-based
@@ -3873,17 +3984,19 @@ mod tests {
         let catalog = ModelCatalog::new();
         let codex = catalog.get_provider("codex").unwrap();
         assert_eq!(codex.display_name, "OpenAI Codex");
-        assert_eq!(codex.api_key_env, "OPENAI_API_KEY");
-        assert!(codex.key_required);
+        assert_eq!(codex.api_key_env, "CODEX_ACCESS_TOKEN");
+        assert!(!codex.key_required);
     }
 
     #[test]
     fn test_codex_models() {
         let catalog = ModelCatalog::new();
         let models = catalog.models_by_provider("codex");
-        assert_eq!(models.len(), 2);
+        assert_eq!(models.len(), 10);
         assert!(models.iter().any(|m| m.id == "codex/gpt-4.1"));
         assert!(models.iter().any(|m| m.id == "codex/o4-mini"));
+        assert!(models.iter().any(|m| m.id == "codex/gpt-5.3-codex"));
+        assert!(models.iter().any(|m| m.id == "codex/gpt-5-codex"));
     }
 
     #[test]

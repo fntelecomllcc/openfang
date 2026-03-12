@@ -6,6 +6,7 @@
 
 pub mod anthropic;
 pub mod claude_code;
+pub mod codex;
 pub mod copilot;
 pub mod fallback;
 pub mod gemini;
@@ -141,9 +142,9 @@ fn provider_defaults(provider: &str) -> Option<ProviderDefaults> {
             key_required: true,
         }),
         "codex" | "openai-codex" => Some(ProviderDefaults {
-            base_url: OPENAI_BASE_URL,
-            api_key_env: "OPENAI_API_KEY",
-            key_required: true,
+            base_url: "https://chatgpt.com/backend-api",
+            api_key_env: "CODEX_ACCESS_TOKEN",
+            key_required: false,
         }),
         "claude-code" => Some(ProviderDefaults {
             base_url: "",
@@ -281,23 +282,22 @@ pub fn create_driver(config: &DriverConfig) -> Result<Arc<dyn LlmDriver>, LlmErr
         return Ok(Arc::new(gemini::GeminiDriver::new(api_key, base_url)));
     }
 
-    // Codex — reuses OpenAI driver with credential sync from Codex CLI
+    // Codex — uses ChatGPT Responses API (not standard OpenAI chat/completions)
     if provider == "codex" || provider == "openai-codex" {
-        let api_key = config
-            .api_key
-            .clone()
-            .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-            .or_else(crate::model_catalog::read_codex_credential)
-            .ok_or_else(|| {
-                LlmError::MissingApiKey(
-                    "Set OPENAI_API_KEY or install Codex CLI".to_string(),
-                )
-            })?;
-        let base_url = config
-            .base_url
-            .clone()
-            .unwrap_or_else(|| OPENAI_BASE_URL.to_string());
-        return Ok(Arc::new(openai::OpenAIDriver::new(api_key, base_url)));
+        // Try reading credentials from ~/.codex/auth.json (Codex CLI)
+        if let Some(auth) = codex::read_codex_auth_json() {
+            let base_url = config.base_url.clone();
+            return Ok(Arc::new(codex::CodexDriver::new(
+                auth.access_token,
+                auth.refresh_token,
+                auth.account_id,
+                auth.expires_at,
+                base_url,
+            )));
+        }
+        return Err(LlmError::MissingApiKey(
+            "No Codex CLI credentials found. Run `codex login` first.".to_string(),
+        ));
     }
 
     // Claude Code CLI — subprocess-based, no API key needed
